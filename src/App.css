@@ -34,9 +34,12 @@
   --glow-primary: 0 0 20px rgba(124, 58, 237, 0.2);
 }
 
+/* ✅ FIX 1: Removed `transition: all` from the `*` selector.
+   It was intercepting @hello-pangea/dnd's inline style updates during drag,
+   causing position calculations to lag and cards to freeze after a drop.
+   Transitions are now scoped only to the elements that need them. */
 * {
   box-sizing: border-box;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body {
@@ -85,6 +88,8 @@ body {
   flex-direction: column;
   gap: 1.5rem;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .header {
@@ -99,10 +104,108 @@ body {
   justify-content: space-between;
   padding: 0 2rem;
   box-shadow: var(--shadow-md);
+  position: sticky;
+  top: 1.5rem;
+  z-index: 10000;
+}
+
+.header-right {
+  position: relative;
+  z-index: 10001;
+}
+
+.user-menu-trigger {
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.user-menu-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: var(--glow-primary);
+  transform: translateY(-1px);
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: white;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  box-shadow: var(--shadow-sm);
+}
+
+.user-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  width: 220px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-lg);
+  padding: 0.5rem;
+  z-index: 10002;
+}
+
+.user-menu-item {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  padding: 0.75rem 0.75rem;
+  border-radius: 12px;
+  display: flex;
+  justify-content: flex-start;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.user-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.user-menu-item.danger {
+  color: #f87171;
+}
+
+.user-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.user-menu-sep {
+  height: 1px;
+  background: var(--glass-border);
+  margin: 0.5rem 0.25rem;
 }
 
 /* Glass Cards */
 .card {
+  z-index: 20;
   background: var(--bg-card);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -110,6 +213,7 @@ body {
   border-radius: var(--radius-md);
   padding: 1.5rem;
   box-shadow: var(--shadow-md);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 
 .card:hover {
@@ -204,6 +308,7 @@ td:last-child {
   align-items: center;
   gap: 1rem;
   font-weight: 600;
+  transition: color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 
 .nav-item:hover {
@@ -225,6 +330,7 @@ input, select, textarea {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md);
   width: 100%;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 input:focus {
@@ -241,6 +347,7 @@ button.primary {
   border-radius: var(--radius-md);
   font-weight: 700;
   box-shadow: var(--glow-primary);
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 button.primary:hover {
@@ -253,6 +360,7 @@ button.secondary {
   border: 1px solid var(--glass-border);
   color: white;
   padding: 0.8rem 1.5rem;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
 }
 
 /* Side Panel */
@@ -394,9 +502,11 @@ button {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ✅ FIX 1 (continued): Scoped transition replaces the removed `transition: all` on `*` */
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s, border-color 0.2s;
   border: none;
 }
+
 .sidebar-footer {
   padding: 1.5rem;
   border-top: 1px solid var(--glass-border);
@@ -417,6 +527,7 @@ button {
   border-radius: var(--radius-md);
   padding: 1.25rem;
   margin-bottom: 1rem;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .interaction-item:hover {
@@ -440,11 +551,13 @@ button {
 .side-panel .card {
   height: 100%;
 }
-/* Pipeline View - Creative Overhaul */
+
+/* Pipeline View */
 .pipeline-container {
   display: flex;
   gap: 1.5rem;
   overflow-x: auto;
+  overflow-y: visible;
   padding-bottom: 1rem;
   min-height: calc(100vh - 200px);
 }
@@ -458,6 +571,12 @@ button {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.pipeline-view.is-dragging .pipeline-column {
+  backdrop-filter: none;
 }
 
 .column-header {
@@ -498,6 +617,9 @@ button {
   margin-bottom: 1rem;
   cursor: grab;
   box-shadow: var(--shadow-sm);
+  /* ✅ FIX 1 (continued): Only transition specific safe properties, never `all` */
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  position: relative;
 }
 
 .kanban-card:hover {
@@ -506,10 +628,26 @@ button {
   box-shadow: var(--glow-primary);
 }
 
+/* ✅ FIX 1 (continued): Completely kill ALL transitions on dragging cards.
+   The drag library injects inline styles for position on every mousemove — any
+   CSS transition on those properties causes lag, ghosting, and post-drop freezes. */
+.kanban-card.dragging,
+.pipeline-view.is-dragging .kanban-card {
+  transition: none !important;
+}
+
+.kanban-card.dragging {
+  cursor: grabbing;
+  filter: none !important;
+  backdrop-filter: none !important;
+  transform: rotate(0.5deg);
+}
+
 .kanban-card h4 {
   margin: 0 0 0.5rem 0;
   font-size: 0.95rem;
   font-weight: 700;
+  word-break: break-word;
 }
 
 .kanban-card .company {
@@ -526,6 +664,7 @@ button {
   justify-content: space-between;
   align-items: center;
 }
+
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* Scrollbar */

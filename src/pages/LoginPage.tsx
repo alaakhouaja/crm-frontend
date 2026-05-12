@@ -27,7 +27,7 @@ export function LoginPage() {
   return (
     <div className="page login">
       <div className="card">
-        <h1>CRM — Connexion</h1>
+        <h1> Connexion</h1>
         <form onSubmit={onSubmit}>
           <label>
             Email

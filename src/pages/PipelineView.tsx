@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { 
-  RefreshCw, 
-  Building2, 
-  MoreVertical, 
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  RefreshCw,
+  Building2,
+  MoreVertical,
   Calendar,
-  Filter
+  Filter,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -29,169 +28,277 @@ const stageColors: Record<LeadStage, string> = {
   LOST: '#ef4444',
 };
 
-export function PipelineView() {
-  const { token } = useAuth();
-  const [leadsByStage, setLeadsByStage] = useState<Record<LeadStage, Lead[]>>({
+function emptyGroups(): Record<LeadStage, Lead[]> {
+  return {
     NEW: [],
     CONTACTED: [],
     QUALIFIED: [],
     PROPOSAL: [],
     WON: [],
     LOST: [],
-  });
-  const [loading, setLoading] = useState(true);
+  };
+}
 
-  const loadLeads = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    try {
-      const res = await api<PaginatedResponse<Lead>>('/leads?limit=100', { token });
-      if (res && res.data) {
-        const grouped = res.data.reduce((acc, lead) => {
-          if (!acc[lead.stage]) acc[lead.stage] = [];
-          acc[lead.stage].push(lead);
-          return acc;
-        }, {
-          NEW: [],
-          CONTACTED: [],
-          QUALIFIED: [],
-          PROPOSAL: [],
-          WON: [],
-          LOST: [],
-        } as Record<LeadStage, Lead[]>);
-        setLeadsByStage(grouped);
+export function PipelineView() {
+  const { token } = useAuth();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<LeadStage | null>(null);
+
+  const loadLeads = useCallback(
+    async (silent = false) => {
+      if (!token) return;
+      if (!silent) setLoading(true);
+      try {
+        const res = await api<PaginatedResponse<Lead>>('/leads?limit=100', {
+          token,
+        });
+        setLeads(res?.data ?? []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erreur chargement');
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to load leads:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+    },
+    [token],
+  );
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
 
-  async function onDragEnd(result: DropResult) {
-    const { destination, source, draggableId } = result;
+  const leadsByStage = useMemo(() => {
+    const groups = emptyGroups();
+    for (const lead of leads) {
+      groups[lead.stage].push(lead);
+    }
+    return groups;
+  }, [leads]);
 
-    if (!destination) return;
-    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+  function onDragStart(leadId: string) {
+    setDraggedLeadId(leadId);
+    setError(null);
+  }
 
-    const sourceStage = source.droppableId as LeadStage;
-    const destStage = destination.droppableId as LeadStage;
+  function onDragEnd() {
+    setDraggedLeadId(null);
+    setDragOverStage(null);
+  }
 
-    const newLeadsByStage = { ...leadsByStage };
-    const sourceLeads = [...newLeadsByStage[sourceStage]];
-    const destLeads = sourceStage === destStage ? sourceLeads : [...newLeadsByStage[destStage]];
-    
-    const [movedLead] = sourceLeads.splice(source.index, 1);
-    const updatedLead = { ...movedLead, stage: destStage };
-    destLeads.splice(destination.index, 0, updatedLead);
-    
-    newLeadsByStage[sourceStage] = sourceLeads;
-    newLeadsByStage[destStage] = destLeads;
-    
-    setLeadsByStage(newLeadsByStage);
+  async function moveLeadToStage(destStage: LeadStage) {
+    if (!draggedLeadId) return;
+    const lead = leads.find((item) => item.id === draggedLeadId);
+    if (!lead) {
+      setDraggedLeadId(null);
+      setDragOverStage(null);
+      return;
+    }
+    if (lead.stage === destStage) {
+      setDraggedLeadId(null);
+      setDragOverStage(null);
+      return;
+    }
+
+    const previousLeads = leads;
+    setSavingId(draggedLeadId);
+    setError(null);
+    setDraggedLeadId(null);
+    setDragOverStage(null);
+
+    setLeads((prev) => {
+      const updated = prev.map((item) =>
+        item.id === draggedLeadId ? { ...item, stage: destStage } : item,
+      );
+      // Keep the moved lead at the end of the destination column.
+      updated.sort((a, b) => {
+        if (a.id === draggedLeadId && b.stage === destStage && b.id !== draggedLeadId) {
+          return 1;
+        }
+        if (b.id === draggedLeadId && a.stage === destStage && a.id !== draggedLeadId) {
+          return -1;
+        }
+        return 0;
+      });
+      return updated;
+    });
 
     try {
-      await api(`/leads/${draggableId}`, {
+      if (!token) {
+        throw new Error('Session invalide, reconnectez-vous.');
+      }
+      await api(`/leads/${draggedLeadId}`, {
         method: 'PATCH',
         token,
         body: JSON.stringify({ stage: destStage }),
       });
+      await loadLeads(true);
     } catch (err) {
-      console.error('Failed to update lead stage:', err);
-      void loadLeads(); 
+      setLeads(previousLeads);
+      setError(err instanceof Error ? err.message : 'Erreur sauvegarde');
+    } finally {
+      setSavingId(null);
     }
   }
 
-  if (loading && Object.values(leadsByStage).every(arr => arr.length === 0)) {
+  if (loading && leads.length === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '60vh',
+        }}
+      >
         <RefreshCw size={48} className="animate-spin text-muted" />
       </div>
     );
   }
 
   return (
-    <div className="pipeline-view">
+    <div className={`pipeline-view${draggedLeadId ? ' is-dragging' : ''}`}>
       <div className="flex-between" style={{ marginBottom: '2rem' }}>
-        
         <div className="row-gap">
-          <button className="secondary small" onClick={() => void loadLeads()}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualiser
+          <button
+            className="secondary small"
+            onClick={() => void loadLeads(false)}
+            disabled={!!savingId}
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />{' '}
+            Actualiser
           </button>
-          <button className="secondary small">
+          <button className="secondary small" disabled>
             <Filter size={14} /> Filtres
           </button>
+          {savingId ? (
+            <span
+              className="badge x-small"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                color: 'var(--text-muted)',
+                padding: '4px 8px',
+                borderRadius: '10px',
+              }}
+            >
+              Sauvegarde...
+            </span>
+          ) : null}
         </div>
+        {error ? (
+          <div className="muted" style={{ color: 'var(--danger)', fontWeight: 700 }}>
+            {error}
+          </div>
+        ) : null}
       </div>
 
-      <DragDropContext onDragEnd={onDragEnd}>
-        <div className="pipeline-container">
-          {stages.map((stage) => (
-            <div key={stage} className="pipeline-column">
-              <div className="column-header" style={{ borderTop: `4px solid ${stageColors[stage]}` }}>
-                <div className="flex-center">
-                  <h3>{stage}</h3>
-                  <span className="column-count">{leadsByStage[stage].length}</span>
-                </div>
-                <MoreVertical size={16} className="text-muted" style={{ cursor: 'pointer' }} />
+      <div className="pipeline-container">
+        {stages.map((stage) => (
+          <div key={stage} className="pipeline-column">
+            <div
+              className="column-header"
+              style={{ borderTop: `4px solid ${stageColors[stage]}` }}
+            >
+              <div className="flex-center">
+                <h3>{stage}</h3>
+                <span className="column-count">{leadsByStage[stage].length}</span>
               </div>
-              
-              <Droppable droppableId={stage}>
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className="column-content"
-                    style={{ background: snapshot.isDraggingOver ? 'rgba(255,255,255,0.02)' : 'transparent' }}
-                  >
-                    {leadsByStage[stage].map((lead, index) => (
-                      <Draggable key={lead.id} draggableId={lead.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className="kanban-card"
-                            style={{ 
-                              ...provided.draggableProps.style,
-                              borderColor: snapshot.isDragging ? stageColors[stage] : 'var(--glass-border)',
-                              boxShadow: snapshot.isDragging ? `0 10px 30px -5px ${stageColors[stage]}40` : 'var(--shadow-sm)',
-                              zIndex: snapshot.isDragging ? 100 : 1
-                            }}
-                          >
-                            <h4>{lead.firstName} {lead.lastName}</h4>
-                            <div className="company">
-                              <Building2 size={12} />
-                              <span>{lead.company || 'Indépendant'}</span>
-                            </div>
-                            
-                            <div className="footer">
-                              <div className="flex-center x-small text-muted">
-                                <Calendar size={12} />
-                                <span>{new Date(lead.createdAt).toLocaleDateString()}</span>
-                              </div>
-                              {lead.score ? (
-                                <div className="badge x-small" style={{ background: `${stageColors[stage]}15`, color: stageColors[stage], padding: '2px 6px', borderRadius: '6px' }}>
-                                  Score: {lead.score}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
+              <MoreVertical
+                size={16}
+                className="text-muted"
+                style={{ cursor: 'pointer' }}
+              />
             </div>
-          ))}
-        </div>
-      </DragDropContext>
+
+            <div
+              className="column-content"
+              style={{
+                background:
+                  dragOverStage === stage
+                    ? 'rgba(255,255,255,0.04)'
+                    : 'transparent',
+                outline:
+                  dragOverStage === stage
+                    ? `1px dashed ${stageColors[stage]}`
+                    : 'none',
+                outlineOffset: '-1px',
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!draggedLeadId) return;
+                setDragOverStage(stage);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                if (!draggedLeadId) return;
+                setDragOverStage(stage);
+              }}
+              onDragLeave={(e) => {
+                const current = e.currentTarget;
+                const related = e.relatedTarget as Node | null;
+                if (!related || !current.contains(related)) {
+                  setDragOverStage((prev) => (prev === stage ? null : prev));
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                void moveLeadToStage(stage);
+              }}
+            >
+              {leadsByStage[stage].map((lead) => (
+                <div
+                  key={lead.id}
+                  className={`kanban-card${
+                    draggedLeadId === lead.id ? ' dragging' : ''
+                  }`}
+                  draggable={savingId !== lead.id}
+                  onDragStart={() => onDragStart(lead.id)}
+                  onDragEnd={onDragEnd}
+                  style={{
+                    borderColor:
+                      draggedLeadId === lead.id
+                        ? stageColors[lead.stage]
+                        : 'var(--glass-border)',
+                    boxShadow:
+                      draggedLeadId === lead.id
+                        ? `0 10px 30px -5px ${stageColors[lead.stage]}40`
+                        : 'var(--shadow-sm)',
+                    opacity: savingId === lead.id ? 0.75 : 1,
+                  }}
+                >
+                  <h4>{lead.firstName} {lead.lastName}</h4>
+                  <div className="company">
+                    <Building2 size={12} />
+                    <span>{lead.company || 'Independant'}</span>
+                  </div>
+
+                  <div className="footer">
+                    <div className="flex-center x-small text-muted">
+                      <Calendar size={12} />
+                      <span>{new Date(lead.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    {lead.score ? (
+                      <div
+                        className="badge x-small"
+                        style={{
+                          background: `${stageColors[lead.stage]}15`,
+                          color: stageColors[lead.stage],
+                          padding: '2px 6px',
+                          borderRadius: '6px',
+                        }}
+                      >
+                        Score: {lead.score}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

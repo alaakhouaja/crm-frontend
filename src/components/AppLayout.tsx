@@ -1,18 +1,16 @@
-import { type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Users, 
   LayoutDashboard, 
   Kanban, 
-  LogOut, 
   Search,
   ChevronRight,
-  Plus,
+  ChevronDown,
   BrainCircuit
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { NotificationBell } from './NotificationBell';
 
 interface LayoutProps {
   children: ReactNode;
@@ -21,12 +19,41 @@ interface LayoutProps {
 export function AppLayout({ children }: LayoutProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const navItems = [
-    { label: 'Tableau de bord', path: '/leads', icon: LayoutDashboard },
-    { label: 'Pipeline', path: '/pipeline', icon: Kanban },
-    ...(user?.role === 'ADMIN' ? [{ label: 'Équipe', path: '/users', icon: Users }] : []),
-  ];
+  const navItems = (() => {
+    if (user?.role === 'ADMIN') {
+      return [
+        { label: 'Utilisateurs', path: '/users', icon: Users },
+        { label: 'Leads', path: '/leads', icon: LayoutDashboard },
+        { label: 'Pipeline', path: '/pipeline', icon: Kanban },
+      ];
+    }
+    if (user?.role === 'SALES') {
+      return [
+        { label: 'Mes leads', path: '/leads', icon: LayoutDashboard },
+        { label: 'Mon pipeline', path: '/pipeline', icon: Kanban },
+      ];
+    }
+    if (user?.role === 'MARKETING') {
+      return [{ label: 'Leads entrants', path: '/leads', icon: LayoutDashboard }];
+    }
+    return [{ label: 'Dashboard', path: '/leads', icon: LayoutDashboard }];
+  })();
+
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, []);
+
+  const initials = `${user?.firstName?.[0] ?? ''}${user?.lastName?.[0] ?? ''}`.toUpperCase() || (user?.email?.[0] ?? 'U').toUpperCase();
 
   return (
     <div className="app-layout">
@@ -62,6 +89,7 @@ export function AppLayout({ children }: LayoutProps) {
                 key={item.path} 
                 to={item.path} 
                 className={`nav-item ${isActive ? 'active' : ''}`}
+                onClick={() => setMenuOpen(false)}
               >
                 <Icon size={20} />
                 <span>{item.label}</span>
@@ -77,38 +105,6 @@ export function AppLayout({ children }: LayoutProps) {
             );
           })}
         </nav>
-
-        <div className="sidebar-footer">
-          <div className="flex-center" style={{ marginBottom: '1rem', padding: '0 0.5rem' }}>
-            <div style={{ 
-              width: '32px', 
-              height: '32px', 
-              borderRadius: '8px', 
-              background: 'rgba(255,255,255,0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.75rem',
-              fontWeight: 800
-            }}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user?.firstName}
-              </div>
-              <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>{user?.role}</div>
-            </div>
-          </div>
-          <button 
-            className="nav-item" 
-            style={{ width: '100%', background: 'rgba(244, 63, 94, 0.1)', color: '#f43f5e', border: 'none', justifyContent: 'center' }} 
-            onClick={logout}
-          >
-            <LogOut size={18} />
-            <span>Sortie</span>
-          </button>
-        </div>
       </motion.aside>
 
       {/* Main Content */}
@@ -129,12 +125,38 @@ export function AppLayout({ children }: LayoutProps) {
             </div>
           </div>
 
-          <div className="flex-center">
-            <NotificationBell />
-            <button className="primary" style={{ padding: '0.6rem 1rem', borderRadius: '12px' }}>
-              <Plus size={18} />
-              <span>Nouveau</span>
+          <div className="header-right" ref={menuRef}>
+            <button
+              type="button"
+              className="user-menu-trigger"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <span className="user-avatar">{initials}</span>
+              <span className="user-name">{user?.firstName ?? user?.email}</span>
+              <ChevronDown size={16} className="text-muted" />
             </button>
+
+            {menuOpen && (
+              <div className="user-menu">
+                <Link to="/profile" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                  Profil
+                </Link>
+                <Link to="/settings" className="user-menu-item" onClick={() => setMenuOpen(false)}>
+                  Paramètres
+                </Link>
+                <div className="user-menu-sep" />
+                <button
+                  type="button"
+                  className="user-menu-item danger"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  Déconnexion
+                </button>
+              </div>
+            )}
           </div>
         </motion.header>
 

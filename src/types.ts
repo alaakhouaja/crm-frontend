@@ -32,6 +32,7 @@ export type Lead = {
   conversionProbability: number | null;
   notes: string | null;
   ownerId: string;
+  isAnonymized?: boolean;
   owner: {
     id: string;
     email: string;

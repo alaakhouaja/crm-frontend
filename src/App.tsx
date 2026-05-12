@@ -5,8 +5,17 @@ import { LoginPage } from './pages/LoginPage';
 import { LeadsPage } from './pages/LeadsPage';
 import { UsersPage } from './pages/UsersPage';
 import { PipelineView } from './pages/PipelineView';
+import { ProfilePage } from './pages/ProfilePage';
+import { SettingsPage } from './pages/SettingsPage';
 import { AppLayout } from './components/AppLayout';
 import './App.css';
+
+function defaultPath(role?: string) {
+  if (!role) return '/leads';
+  if (role === 'ADMIN') return '/users';
+  if (role === 'SALES') return '/pipeline';
+  return '/leads';
+}
 
 function Protected({ children, roles }: { children: ReactNode, roles?: string[] }) {
   const auth = useAuth();
@@ -26,7 +35,7 @@ function Protected({ children, roles }: { children: ReactNode, roles?: string[] 
     return <Navigate to="/login" replace />;
   }
   if (roles && user && !roles.includes(user.role)) {
-    return <Navigate to="/leads" replace />;
+    return <Navigate to={defaultPath(user.role)} replace />;
   }
   return (
     <AppLayout>
@@ -48,9 +57,23 @@ function LoginRoute() {
     );
   }
   if (token) {
-    return <Navigate to="/leads" replace />;
+    return <Navigate to={defaultPath(auth.user?.role)} replace />;
   }
   return <LoginPage />;
+}
+
+function HomeRoute() {
+  const auth = useAuth();
+  if (!auth) return null;
+  if (auth.loading) {
+    return (
+      <div className="page center">
+        <p className="muted">Chargement…</p>
+      </div>
+    );
+  }
+  if (!auth.token) return <Navigate to="/login" replace />;
+  return <Navigate to={defaultPath(auth.user?.role)} replace />;
 }
 
 function AppRoutes() {
@@ -68,7 +91,7 @@ function AppRoutes() {
       <Route
         path="/pipeline"
         element={
-          <Protected>
+          <Protected roles={['ADMIN', 'SALES']}>
             <PipelineView />
           </Protected>
         }
@@ -81,8 +104,24 @@ function AppRoutes() {
           </Protected>
         }
       />
-      <Route path="/" element={<Navigate to="/leads" replace />} />
-      <Route path="*" element={<Navigate to="/leads" replace />} />
+      <Route
+        path="/profile"
+        element={
+          <Protected>
+            <ProfilePage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <Protected>
+            <SettingsPage />
+          </Protected>
+        }
+      />
+      <Route path="/" element={<HomeRoute />} />
+      <Route path="*" element={<HomeRoute />} />
     </Routes>
   );
 }

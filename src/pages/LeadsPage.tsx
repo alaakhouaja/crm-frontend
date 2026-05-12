@@ -17,7 +17,9 @@ import {
   MoreVertical,
   X,
   Edit2,
-  Trash2
+  Trash2,
+  Archive,
+  ArchiveRestore
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -50,6 +52,7 @@ export function LeadsPage() {
   const [lastPage, setLastPage] = useState(1);
   const [filter] = useState<LeadStage | ''>('');
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -91,6 +94,7 @@ export function LeadsPage() {
       let url = `/leads?page=${page}&limit=10`;
       if (filter) url += `&stage=${filter}`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
+      url += `&archived=${showArchived ? 'true' : 'false'}`;
       
       const res = await api<PaginatedResponse<Lead>>(url, { token });
       if (res) {
@@ -103,7 +107,7 @@ export function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, page, search, token]);
+  }, [filter, page, search, showArchived, token]);
 
   async function onExportAI() {
     if (!token) return;
@@ -175,6 +179,14 @@ export function LeadsPage() {
     void load();
   }, [load]);
 
+  const canCreateLead = user?.role === 'ADMIN' || user?.role === 'SALES' || user?.role === 'MARKETING';
+  const canEditLead = user?.role === 'ADMIN' || user?.role === 'SALES' || user?.role === 'MARKETING';
+  const canEditCommercial = user?.role === 'ADMIN' || user?.role === 'SALES';
+  const canArchive = user?.role === 'ADMIN';
+  const canDeleteLead = user?.role === 'ADMIN';
+  const canExportAI = user?.role === 'ADMIN' || user?.role === 'EXECUTIVE';
+  const canAddInteraction = user?.role === 'ADMIN' || user?.role === 'SALES';
+
   useEffect(() => {
     if (selectedLead) {
       void loadInteractions(selectedLead.id);
@@ -197,19 +209,21 @@ export function LeadsPage() {
     e.preventDefault();
     if (!token || !selectedLead) return;
     try {
+      const payload: Record<string, unknown> = {
+        firstName: editFirstName,
+        lastName: editLastName,
+        email: editEmail,
+        phone: editPhone || null,
+        company: editCompany || null,
+        source: editSource || null,
+        notes: editNotes || null,
+      };
+      if (canEditCommercial) payload.stage = editStage;
+
       const updated = await api<Lead>(`/leads/${selectedLead.id}`, {
         method: 'PATCH',
         token,
-        body: JSON.stringify({
-          firstName: editFirstName,
-          lastName: editLastName,
-          email: editEmail,
-          phone: editPhone || null,
-          company: editCompany || null,
-          source: editSource || null,
-          notes: editNotes || null,
-          stage: editStage,
-        }),
+        body: JSON.stringify(payload),
       });
       setSelectedLead(updated);
       setIsEditModalOpen(false);
@@ -219,17 +233,45 @@ export function LeadsPage() {
     }
   }
 
-  async function onAnonymizeLead() {
-    if (!token || !selectedLead || !window.confirm('Voulez-vous vraiment anonymiser ce lead ? (Action irréversible)')) return;
+  async function onArchiveLead() {
+    if (!token || !selectedLead || !window.confirm('Archiver ce lead ?')) return;
     try {
-      const updated = await api<Lead>(`/leads/${selectedLead.id}/anonymize`, {
+      const updated = await api<Lead>(`/leads/${selectedLead.id}/archive`, {
         method: 'POST',
         token,
       });
       setSelectedLead(updated);
       await load();
     } catch {
-      alert('Erreur lors de l\'anonymisation');
+      alert('Erreur lors de l\'archivage');
+    }
+  }
+
+  async function onUnarchiveLead() {
+    if (!token || !selectedLead || !window.confirm('Désarchiver ce lead ?')) return;
+    try {
+      const updated = await api<Lead>(`/leads/${selectedLead.id}/unarchive`, {
+        method: 'POST',
+        token,
+      });
+      setSelectedLead(updated);
+      await load();
+    } catch {
+      alert('Erreur lors du désarchivage');
+    }
+  }
+
+  async function onDeleteLead() {
+    if (!token || !selectedLead || !window.confirm('Supprimer ce lead définitivement ?')) return;
+    try {
+      await api<Lead>(`/leads/${selectedLead.id}`, {
+        method: 'DELETE',
+        token,
+      });
+      setSelectedLead(null);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erreur lors de la suppression');
     }
   }
 
@@ -293,9 +335,19 @@ export function LeadsPage() {
           <button className="secondary small" onClick={() => void load()}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button className="primary glow-effect" onClick={() => setIsCreateModalOpen(true)}>
-            <Plus size={18} /> Nouveau Prospect
+          <button
+            className="secondary small"
+            onClick={() => { setShowArchived(v => !v); setSelectedLead(null); setPage(1); }}
+            style={{ color: showArchived ? 'var(--warning)' : undefined }}
+          >
+            {showArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+            {showArchived ? 'Archivés' : 'Actifs'}
           </button>
+          {canCreateLead && (
+            <button className="primary glow-effect" onClick={() => setIsCreateModalOpen(true)}>
+              <Plus size={18} /> Nouveau Prospect
+            </button>
+          )}
         </div>
       </div>
 
@@ -386,7 +438,7 @@ export function LeadsPage() {
             <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)' }} className="flex-between">
               <div className="flex-center">
                 <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Portefeuille Prospects</h2>
-                <span className="badge badge-blue">{totalLeads} total</span>
+                <span className="badge badge-blue">{totalLeads} {showArchived ? 'archivés' : 'actifs'}</span>
               </div>
               <div className="row-gap">
                 {(user?.role === 'ADMIN' || user?.role === 'MARKETING') && (
@@ -567,15 +619,31 @@ export function LeadsPage() {
                   </div>
                   
                   <div className="flex-center" style={{ justifyContent: 'center', marginTop: '2rem', gap: '0.75rem' }}>
-                    <button className="primary small" onClick={() => setIsEditModalOpen(true)}>
-                      <Edit2 size={14} /> Éditer
-                    </button>
-                    <button className="secondary small" style={{ color: 'var(--danger)' }} onClick={() => void onAnonymizeLead()}>
-                      <Trash2 size={14} />
-                    </button>
-                    <button className="secondary small" onClick={() => void onExportAI()}>
-                      <BrainCircuit size={14} />
-                    </button>
+                    {canEditLead && (
+                      <button className="primary small" onClick={() => setIsEditModalOpen(true)} disabled={!!selectedLead.isAnonymized}>
+                        <Edit2 size={14} /> Éditer
+                      </button>
+                    )}
+                    {canArchive && !selectedLead.isAnonymized && (
+                      <button className="secondary small" style={{ color: 'var(--warning)' }} onClick={() => void onArchiveLead()}>
+                        <Archive size={14} />
+                      </button>
+                    )}
+                    {canArchive && !!selectedLead.isAnonymized && (
+                      <button className="secondary small" style={{ color: 'var(--warning)' }} onClick={() => void onUnarchiveLead()}>
+                        <ArchiveRestore size={14} />
+                      </button>
+                    )}
+                    {canDeleteLead && (
+                      <button className="secondary small" style={{ color: 'var(--danger)' }} onClick={() => void onDeleteLead()}>
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                    {canExportAI && (
+                      <button className="secondary small" onClick={() => void onExportAI()}>
+                        <BrainCircuit size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -610,7 +678,7 @@ export function LeadsPage() {
                           </div>
                           <div className="form-group">
                             <label className="text-muted x-small" style={{ fontWeight: 800, textTransform: 'uppercase' }}>Étape Pipeline</label>
-                            <select value={editStage} onChange={e => setEditStage(e.target.value as LeadStage)}>
+                            <select value={editStage} onChange={e => setEditStage(e.target.value as LeadStage)} disabled={!canEditCommercial}>
                               {stages.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
                           </div>
@@ -654,34 +722,42 @@ export function LeadsPage() {
                       <span className="badge badge-blue">{interactions.length}</span>
                     </div>
                     
-                    <form onSubmit={onCreateInteraction} className="interaction-form" style={{ marginBottom: '2rem' }}>
-                      <div style={{ position: 'relative' }}>
-                        <textarea 
-                          placeholder="Notez une interaction..."
-                          value={newInteractionContent}
-                          onChange={(e) => setNewInteractionContent(e.target.value)}
-                          required
-                          style={{ 
-                            background: 'rgba(15, 23, 42, 0.4)', 
-                            border: '1px solid var(--glass-border)', 
-                            fontSize: '0.85rem', 
-                            minHeight: '100px',
-                            padding: '1rem',
-                            resize: 'none'
-                          }}
-                        />
-                        <div style={{ position: 'absolute', bottom: '1rem', right: '1rem', display: 'flex', gap: '0.5rem' }}>
-                          <select 
-                            value={newInteractionType} 
-                            onChange={(e) => setNewInteractionType(e.target.value as InteractionType)}
-                            style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.7rem', background: 'var(--bg-main)' }}
-                          >
-                            {interactionTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                          <button type="submit" className="primary small" style={{ padding: '0.3rem 0.8rem' }}>Poster</button>
+                    {canAddInteraction && !selectedLead.isAnonymized ? (
+                      <form onSubmit={onCreateInteraction} className="interaction-form" style={{ marginBottom: '2rem' }}>
+                        <div style={{ position: 'relative' }}>
+                          <textarea 
+                            placeholder="Notez une interaction..."
+                            value={newInteractionContent}
+                            onChange={(e) => setNewInteractionContent(e.target.value)}
+                            required
+                            style={{ 
+                              background: 'rgba(15, 23, 42, 0.4)', 
+                              border: '1px solid var(--glass-border)', 
+                              fontSize: '0.85rem', 
+                              minHeight: '100px',
+                              padding: '1rem',
+                              resize: 'none'
+                            }}
+                          />
+                          <div style={{ position: 'absolute', bottom: '1rem', right: '1rem', display: 'flex', gap: '0.5rem' }}>
+                            <select 
+                              value={newInteractionType} 
+                              onChange={(e) => setNewInteractionType(e.target.value as InteractionType)}
+                              style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.7rem', background: 'var(--bg-main)' }}
+                            >
+                              {interactionTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            <button type="submit" className="primary small" style={{ padding: '0.3rem 0.8rem' }}>Poster</button>
+                          </div>
                         </div>
+                      </form>
+                    ) : (
+                      <div style={{ marginBottom: '2rem', padding: '1rem', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', background: 'rgba(255,255,255,0.03)' }}>
+                        <p className="text-muted small" style={{ margin: 0 }}>
+                          {selectedLead.isAnonymized ? 'Lead archivé : interactions désactivées.' : 'Accès en lecture seule aux interactions.'}
+                        </p>
                       </div>
-                    </form>
+                    )}
 
                     <div className="interactions-list">
                       {loadingInteractions ? (

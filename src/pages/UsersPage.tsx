@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Plus, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import type { AuthUser, PaginatedResponse, UserRole } from '../types';
@@ -6,14 +8,18 @@ import type { AuthUser, PaginatedResponse, UserRole } from '../types';
 const roles: UserRole[] = ['ADMIN', 'SALES', 'MARKETING', 'EXECUTIVE'];
 
 export function UsersPage() {
-  const { token, logout } = useAuth();
+  const { token } = useAuth();
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [page, setPage] = useState(1);
   const [lastPage, setLastPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [, setLoading] = useState(true);
 
-  // Formulaire User
+  const [modalOpen, setModalOpen] = useState(false);
+  const [mode, setMode] = useState<'create' | 'edit'>('create');
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+
+  // Formulaire User (modal)
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -41,27 +47,59 @@ export function UsersPage() {
     void load();
   }, [load]);
 
-  async function onCreateUser(e: FormEvent) {
+  function openCreate() {
+    setMode('create');
+    setEditingUserId(null);
+    setEmail('');
+    setPassword('');
+    setFirstName('');
+    setLastName('');
+    setRole('SALES');
+    setModalOpen(true);
+  }
+
+  function openEdit(u: AuthUser) {
+    setMode('edit');
+    setEditingUserId(u.id);
+    setEmail(u.email);
+    setPassword('');
+    setFirstName(u.firstName ?? '');
+    setLastName(u.lastName ?? '');
+    setRole(u.role);
+    setModalOpen(true);
+  }
+
+  async function onSubmitUser(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
     setError(null);
     try {
-      await api<AuthUser>('/users', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({
-          email,
-          password,
-          firstName: firstName || undefined,
-          lastName: lastName || undefined,
-          role,
-        }),
-      });
-      setEmail('');
-      setPassword('');
-      setFirstName('');
-      setLastName('');
-      setRole('SALES');
+      if (mode === 'create') {
+        await api<AuthUser>('/users', {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            email,
+            password,
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
+            role,
+          }),
+        });
+      } else if (mode === 'edit' && editingUserId) {
+        await api<AuthUser>(`/users/${editingUserId}`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({
+            email,
+            password: password || undefined,
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
+            role,
+          }),
+        });
+      }
+      setModalOpen(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Création impossible');
@@ -80,47 +118,88 @@ export function UsersPage() {
 
   return (
     <div className="page">
-      <header className="topbar">
+      <div className="flex-between" style={{ marginBottom: '2rem' }}>
         <div>
           <h1>Utilisateurs</h1>
-          <p className="muted">Gestion des accès (Admin uniquement)</p>
         </div>
-        <div className="actions">
-          <button type="button" onClick={() => void load()}>Actualiser</button>
-          <button type="button" className="secondary" onClick={logout}>Déconnexion</button>
+        <div className="row-gap">
+          <button type="button" className="secondary small" onClick={() => void load()}>
+            Actualiser
+          </button>
+          <button type="button" className="primary" onClick={openCreate}>
+            <Plus size={18} />
+            Ajouter
+          </button>
         </div>
-      </header>
+      </div>
 
-      <section className="card" style={{ marginBottom: '1.5rem' }}>
-        <h2>Nouvel utilisateur</h2>
-        <form className="grid-form" onSubmit={onCreateUser}>
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </label>
-          <label>
-            Mot de passe
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
-          </label>
-          <label>
-            Prénom
-            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          </label>
-          <label>
-            Nom
-            <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-          </label>
-          <label>
-            Rôle
-            <select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-              {roles.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </label>
-          <div className="actions align-end">
-            <button type="submit">Créer</button>
+      <AnimatePresence>
+        {modalOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="card"
+              style={{ width: '100%', maxWidth: '680px', padding: '2rem' }}
+            >
+              <div className="flex-between" style={{ marginBottom: '1.5rem' }}>
+                <h2 style={{ margin: 0 }}>{mode === 'create' ? 'Nouvel utilisateur' : 'Modifier utilisateur'}</h2>
+                <button type="button" className="secondary small" onClick={() => setModalOpen(false)} style={{ padding: '0.4rem' }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form className="grid-form" onSubmit={onSubmitUser} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Email
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </label>
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Mot de passe {mode === 'edit' ? '(optionnel)' : ''}
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required={mode === 'create'}
+                    minLength={mode === 'create' ? 8 : undefined}
+                    placeholder={mode === 'edit' ? 'Laisser vide pour ne pas changer' : undefined}
+                  />
+                </label>
+                <label>
+                  Prénom
+                  <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                </label>
+                <label>
+                  Nom
+                  <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                </label>
+                <label style={{ gridColumn: '1 / -1' }}>
+                  Rôle
+                  <select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
+                    {roles.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {error && <p className="error" style={{ gridColumn: '1 / -1', margin: 0 }}>{error}</p>}
+
+                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                  <button type="submit" className="primary" style={{ flex: 1 }}>
+                    {mode === 'create' ? 'Créer' : 'Enregistrer'}
+                  </button>
+                  <button type="button" className="secondary" style={{ flex: 1 }} onClick={() => setModalOpen(false)}>
+                    Annuler
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </form>
-      </section>
+        )}
+      </AnimatePresence>
 
       <section className="card">
         <h2>Liste des utilisateurs</h2>
@@ -145,7 +224,14 @@ export function UsersPage() {
                   <td><span className="badge">{u.role}</span></td>
                   <td className="muted small">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
                   <td>
-                    <button className="secondary small" onClick={() => onDeleteUser(u.id)}>Supprimer</button>
+                    <div className="row-gap">
+                      <button className="secondary small" onClick={() => openEdit(u)} style={{ padding: '0.4rem' }}>
+                        <Pencil size={16} />
+                      </button>
+                      <button className="secondary small" onClick={() => onDeleteUser(u.id)} style={{ padding: '0.4rem', color: 'var(--danger)' }}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
