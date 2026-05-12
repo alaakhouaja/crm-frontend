@@ -25,14 +25,6 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import type { Lead, LeadStage, PaginatedResponse, Interaction, InteractionType } from '../types';
 
-type AiExportRow = {
-  email: string;
-  company: string | null;
-  source: string | null;
-  interactionsCount: number;
-  label: number;
-};
-
 const stages: LeadStage[] = [
   'NEW',
   'CONTACTED',
@@ -109,21 +101,68 @@ export function LeadsPage() {
     }
   }, [filter, page, search, showArchived, token]);
 
-  async function onExportAI() {
-    if (!token) return;
+  async function onExportLeadCsv() {
+    if (!selectedLead) return;
     try {
-      const data = await api<AiExportRow[]>('/leads/export-ai', { token });
-      const csvContent = "data:text/csv;charset=utf-8," 
-        + ["email,company,source,interactionsCount,label"].join(",") + "\n"
-        + data.map(row => Object.values(row).join(",")).join("\n");
-      
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", "crm_data_for_ai.csv");
+      const headers = [
+        'firstName',
+        'lastName',
+        'email',
+        'phone',
+        'company',
+        'source',
+        'stage',
+        'score',
+        'conversionProbability',
+        'ownerEmail',
+        'createdAt',
+        'updatedAt',
+        'notes',
+        'interactionsCount',
+      ];
+      const row = {
+        firstName: selectedLead.firstName,
+        lastName: selectedLead.lastName,
+        email: selectedLead.email,
+        phone: selectedLead.phone,
+        company: selectedLead.company,
+        source: selectedLead.source,
+        stage: selectedLead.stage,
+        score: selectedLead.score,
+        conversionProbability: selectedLead.conversionProbability,
+        ownerEmail: selectedLead.owner?.email ?? '',
+        createdAt: selectedLead.createdAt,
+        updatedAt: selectedLead.updatedAt,
+        notes: selectedLead.notes ?? '',
+        interactionsCount: interactions.length,
+      };
+      const escapeCsv = (value: unknown) => {
+        const text = value == null ? '' : String(value);
+        return `"${text.replace(/"/g, '""')}"`;
+      };
+      const csvContent =
+        '\uFEFF' +
+        [
+          headers.join(','),
+          headers.map((header) => escapeCsv(row[header as keyof typeof row])).join(','),
+        ].join('\n');
+      const blob = new Blob([csvContent], {
+        type: 'text/csv;charset=utf-8;',
+      });
+      const url = URL.createObjectURL(blob);
+      const safeName = `${selectedLead.firstName}_${selectedLead.lastName}`
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute(
+        'download',
+        `lead_${safeName || selectedLead.id}_${new Date().toISOString().slice(0, 10)}.csv`,
+      );
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     } catch {
       alert('Erreur lors de l\'exportation');
     }
@@ -184,7 +223,7 @@ export function LeadsPage() {
   const canEditCommercial = user?.role === 'ADMIN' || user?.role === 'SALES';
   const canArchive = user?.role === 'ADMIN';
   const canDeleteLead = user?.role === 'ADMIN';
-  const canExportAI = user?.role === 'ADMIN' || user?.role === 'EXECUTIVE';
+  const canExportLead = !!user;
   const canAddInteraction = user?.role === 'ADMIN' || user?.role === 'SALES';
 
   useEffect(() => {
@@ -639,8 +678,8 @@ export function LeadsPage() {
                         <Trash2 size={14} />
                       </button>
                     )}
-                    {canExportAI && (
-                      <button className="secondary small" onClick={() => void onExportAI()}>
+                    {canExportLead && (
+                      <button className="secondary small" onClick={() => void onExportLeadCsv()}>
                         <BrainCircuit size={14} />
                       </button>
                     )}

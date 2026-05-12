@@ -47,6 +47,11 @@ export function PipelineView() {
   const [error, setError] = useState<string | null>(null);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<LeadStage | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [minScore, setMinScore] = useState('');
+  const [onlyWithCompany, setOnlyWithCompany] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
 
   const loadLeads = useCallback(
     async (silent = false) => {
@@ -57,6 +62,8 @@ export function PipelineView() {
           token,
         });
         setLeads(res?.data ?? []);
+        setLastRefreshAt(new Date().toLocaleTimeString());
+        setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erreur chargement');
       } finally {
@@ -70,13 +77,43 @@ export function PipelineView() {
     void loadLeads();
   }, [loadLeads]);
 
+  const filteredLeads = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const scoreValue = minScore.trim() === '' ? null : Number(minScore);
+
+    return leads.filter((lead) => {
+      if (query) {
+        const haystack = [
+          lead.firstName,
+          lead.lastName,
+          lead.email,
+          lead.company ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+
+      if (scoreValue !== null) {
+        if (Number.isNaN(scoreValue)) return false;
+        if ((lead.score ?? 0) < scoreValue) return false;
+      }
+
+      if (onlyWithCompany && !lead.company) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [leads, minScore, onlyWithCompany, search]);
+
   const leadsByStage = useMemo(() => {
     const groups = emptyGroups();
-    for (const lead of leads) {
+    for (const lead of filteredLeads) {
       groups[lead.stage].push(lead);
     }
     return groups;
-  }, [leads]);
+  }, [filteredLeads]);
 
   function onDragStart(leadId: string) {
     setDraggedLeadId(leadId);
@@ -170,7 +207,10 @@ export function PipelineView() {
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />{' '}
             Actualiser
           </button>
-          <button className="secondary small" disabled>
+          <button
+            className="secondary small"
+            onClick={() => setFiltersOpen((prev) => !prev)}
+          >
             <Filter size={14} /> Filtres
           </button>
           {savingId ? (
@@ -186,6 +226,19 @@ export function PipelineView() {
               Sauvegarde...
             </span>
           ) : null}
+          {lastRefreshAt ? (
+            <span
+              className="badge x-small"
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                color: 'var(--text-muted)',
+                padding: '4px 8px',
+                borderRadius: '10px',
+              }}
+            >
+              Maj: {lastRefreshAt}
+            </span>
+          ) : null}
         </div>
         {error ? (
           <div className="muted" style={{ color: 'var(--danger)', fontWeight: 700 }}>
@@ -193,6 +246,65 @@ export function PipelineView() {
           </div>
         ) : null}
       </div>
+
+      {filtersOpen ? (
+        <div
+          className="card"
+          style={{
+            marginBottom: '1.5rem',
+            display: 'grid',
+            gridTemplateColumns: '1.4fr 0.8fr auto auto',
+            gap: '1rem',
+            alignItems: 'end',
+          }}
+        >
+          <label style={{ display: 'grid', gap: '0.4rem' }}>
+            <span className="muted small">Recherche</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Nom, email, entreprise"
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '0.4rem' }}>
+            <span className="muted small">Score minimum</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={minScore}
+              onChange={(e) => setMinScore(e.target.value)}
+              placeholder="Ex: 50"
+            />
+          </label>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+              minHeight: '46px',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={onlyWithCompany}
+              onChange={(e) => setOnlyWithCompany(e.target.checked)}
+              style={{ width: 'auto' }}
+            />
+            <span className="muted small">Avec entreprise</span>
+          </label>
+          <button
+            className="secondary small"
+            onClick={() => {
+              setSearch('');
+              setMinScore('');
+              setOnlyWithCompany(false);
+            }}
+          >
+            Reset
+          </button>
+        </div>
+      ) : null}
 
       <div className="pipeline-container">
         {stages.map((stage) => (
